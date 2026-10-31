@@ -26,14 +26,20 @@ def quotation_number():
     return f"Q-{date.today():%Y%m%d}-{uuid4().hex[:8].upper()}"
 
 
-def parse_lines(form):
+def parse_lines(form, existing_items=()):
     product_ids = form.getlist("product_id")
     quantities = form.getlist("quantity")
     tax_rates = form.getlist("tax_rate")
+    prices = form.getlist("unit_price")
+    item_ids = form.getlist("item_id")
     if not product_ids or len(product_ids) != len(quantities) or len(product_ids) != len(tax_rates):
         raise QuotationError("Add at least one complete product line.")
+    if prices and len(prices) != len(product_ids):
+        raise QuotationError("Each product line must have a unit price.")
+    existing_by_id = {item.id: item for item in existing_items if item.id is not None}
+    unused_existing = list(existing_items)
     lines = []
-    for product_id, raw_quantity, raw_tax in zip(product_ids, quantities, tax_rates):
+    for index, (product_id, raw_quantity, raw_tax) in enumerate(zip(product_ids, quantities, tax_rates)):
         try:
             product = db.session.get(Product, int(product_id))
             quantity = int(raw_quantity)
@@ -48,8 +54,21 @@ def parse_lines(form):
             raise QuotationError("Quantities must be greater than zero.")
         if tax_rate < 0 or tax_rate > 100:
             raise QuotationError("Tax rate must be between 0 and 100 percent.")
+        existing = None
+        if item_ids and len(item_ids) == len(product_ids) and item_ids[index].strip():
+            try:
+                existing = existing_by_id.get(int(item_ids[index]))
+            except ValueError:
+                raise QuotationError("An edited quotation item is invalid.")
+            if existing is None or existing.product_id != product.id:
+                raise QuotationError("An edited quotation item does not belong to this quotation.")
+        elif unused_existing:
+            existing = next((item for item in unused_existing if item.product_id == product.id), None)
+        if existing in unused_existing:
+            unused_existing.remove(existing)
         try:
-            unit_price = money(product.sales_price)
+            raw_price = prices[index].strip() if prices else ""
+            unit_price = money(raw_price if raw_price else (existing.unit_price if existing else product.sales_price))
         except (InvalidOperation, TypeError, ValueError):
             raise QuotationError("The selected product has an invalid price.")
         if not unit_price.is_finite() or unit_price < 0:
@@ -96,7 +115,7 @@ def update_quotation(quote, form):
         customer = None
     if customer is None:
         raise QuotationError("Select a valid customer.")
-    lines = parse_lines(form)
+    lines = parse_lines(form, quote.items)
     quote.customer = customer
     quote.valid_until = parse_expiry(form.get("valid_until", ""))
     quote.template_name = form.get("template_name", "").strip() or None

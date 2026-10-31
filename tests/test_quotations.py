@@ -1,4 +1,5 @@
 import unittest
+import re
 from datetime import date, timedelta
 from decimal import Decimal
 from flask import g
@@ -6,12 +7,13 @@ from werkzeug.datastructures import MultiDict
 
 from app import create_app
 from app.extensions import db
-from app.models import Customer, Plan, Product, Quotation, QuotationTemplate, User
+from app.models import Customer, Plan, Product, Quotation, QuotationTemplate, Subscription, User
 
 
 class TestConfig:
     TESTING = True
     SECRET_KEY = "quotation-tests"
+    WTF_CSRF_ENABLED = False
     SQLALCHEMY_DATABASE_URI = "sqlite:///:memory:"
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     AUTO_INIT_DB = True
@@ -117,6 +119,52 @@ class QuotationFlowTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(Quotation.query.count(), 1)
 
+    def test_csrf_protects_quotation_and_subscription_posts(self):
+        self.login(self.staff)
+        self.app.config["WTF_CSRF_ENABLED"] = True
+        page = self.client.get("/quotations/create")
+        token_match = re.search(rb'name="csrf_token" value="([^"]+)"', page.data)
+        self.assertIsNotNone(token_match)
+        token = token_match.group(1).decode()
+        self.assertEqual(self.client.post("/quotations/create", data=self.form()).status_code, 400)
+        quote_data = self.form()
+        quote_data["csrf_token"] = token
+        self.assertEqual(self.client.post("/quotations/create", data=quote_data).status_code, 302)
+        quote = Quotation.query.one()
+        quote_detail = self.client.get(f"/quotations/{quote.id}")
+        self.assertGreaterEqual(quote_detail.data.count(b'name="csrf_token"'), 2)
+        self.assertEqual(self.client.post(f"/quotations/{quote.id}/confirm").status_code, 400)
+        self.assertEqual(self.client.post(f"/quotations/{quote.id}/confirm", data={"csrf_token": token}).status_code, 302)
+        self.assertEqual(self.client.post(f"/quotations/{quote.id}/convert", data={"plan_id": str(self.plan.id)}).status_code, 400)
+        self.assertEqual(self.client.post(f"/quotations/{quote.id}/convert", data={
+            "plan_id": str(self.plan.id), "csrf_token": token,
+        }).status_code, 302)
+
+        template_page = self.client.get("/quotations/templates/create")
+        self.assertIn(b'name="csrf_token"', template_page.data)
+        template_data = {
+            "name": "CSRF template", "product_id": str(self.product.id),
+            "quantity": "1", "tax_rate": "0", "csrf_token": token,
+        }
+        self.assertEqual(self.client.post("/quotations/templates/create", data=template_data).status_code, 302)
+
+        subscription_page = self.client.get("/subscriptions/create")
+        self.assertIn(b'name="csrf_token"', subscription_page.data)
+        subscription_data = {
+            "customer_id": str(self.customer.id), "plan_id": str(self.plan.id),
+            "start_date": date.today().isoformat(),
+            "expiry_date": (date.today() + timedelta(days=30)).isoformat(),
+            "product_id": str(self.product.id), "quantity": "1", "tax_rate": "0",
+        }
+        self.assertEqual(self.client.post("/subscriptions/create", data=subscription_data).status_code, 400)
+        subscription_data["csrf_token"] = token
+        self.assertEqual(self.client.post("/subscriptions/create", data=subscription_data).status_code, 302)
+        subscription = Subscription.query.filter_by(status="quotation").one()
+        sub_detail = self.client.get(f"/subscriptions/{subscription.id}")
+        self.assertGreaterEqual(sub_detail.data.count(b'name="csrf_token"'), 2)
+        self.assertEqual(self.client.post(f"/subscriptions/{subscription.id}/confirm").status_code, 400)
+        self.assertEqual(self.client.post(f"/subscriptions/{subscription.id}/confirm", data={"csrf_token": token}).status_code, 302)
+
     def test_invalid_customer_and_negative_quantity_are_rejected(self):
         self.login(self.staff)
         invalid_customer = self.form(customer_id=999999)
@@ -158,6 +206,33 @@ class QuotationFlowTests(unittest.TestCase):
         self.client.post("/quotations/create", data=self.form(), follow_redirects=True)
         second = Quotation.query.order_by(Quotation.id.desc()).first()
         self.assertNotEqual(first.quotation_number, second.quotation_number)
+
+    def test_draft_edit_preserves_agreed_price_and_accepts_explicit_price_change(self):
+        quote = self.create_quote(draft=True)
+        self.product.sales_price = Decimal("90.00")
+        db.session.commit()
+        data = self.form(quantity="3")
+        response = self.client.post(f"/quotations/{quote.id}/edit", data=data, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(quote.items[0].unit_price, Decimal("50.00"))
+        self.assertEqual(quote.total_amount, Decimal("165.00"))
+
+        changed = self.form(quantity="3")
+        changed["unit_price"] = "60.00"
+        response = self.client.post(f"/quotations/{quote.id}/edit", data=changed, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(quote.items[0].unit_price, Decimal("60.00"))
+        self.assertEqual(quote.total_amount, Decimal("198.00"))
+
+        replacement = Product(name="Replacement", sales_price=Decimal("25.00"), cost_price=Decimal("5.00"))
+        db.session.add(replacement)
+        db.session.commit()
+        changed_product = self.form(quantity="2")
+        changed_product.update(product_id=str(replacement.id), unit_price="25.00", item_id="")
+        response = self.client.post(f"/quotations/{quote.id}/edit", data=changed_product, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(quote.items[0].product_id, replacement.id)
+        self.assertEqual(quote.items[0].unit_price, Decimal("25.00"))
 
     def test_template_is_saved_and_reused_on_creation_page(self):
         self.login(self.staff)

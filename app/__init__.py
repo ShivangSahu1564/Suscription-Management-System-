@@ -1,10 +1,10 @@
 from pathlib import Path
 
 from flask import Flask, jsonify, render_template
-from sqlalchemy import event
+from sqlalchemy import event, inspect, text
 
 from config import DevelopmentConfig
-from .extensions import db, login_manager
+from .extensions import csrf, db, login_manager
 
 
 def create_app(config_object=None):
@@ -13,6 +13,7 @@ def create_app(config_object=None):
     Path(app.instance_path).mkdir(parents=True, exist_ok=True)
 
     db.init_app(app)
+    csrf.init_app(app)
     if app.config["SQLALCHEMY_DATABASE_URI"].startswith("sqlite:"):
         with app.app_context():
             engine = db.engine
@@ -51,5 +52,42 @@ def create_app(config_object=None):
     if app.config.get("AUTO_INIT_DB", False):
         with app.app_context():
             db.create_all()
+
+    # Additive SQLite migration for databases created before subscription plan
+    # pricing was snapshotted. Legacy records get a zero snapshot so historical
+    # totals are not silently changed.
+    if app.config["SQLALCHEMY_DATABASE_URI"].startswith("sqlite:"):
+        with app.app_context():
+            if inspect(db.engine).has_table("subscriptions"):
+                columns = {column["name"] for column in inspect(db.engine).get_columns("subscriptions")}
+                additions = {
+                    "plan_price": "NUMERIC(12, 2) NOT NULL DEFAULT 0.00",
+                    "plan_tax_rate": "NUMERIC(7, 4) NOT NULL DEFAULT 0.0000",
+                    "plan_quantity": "INTEGER NOT NULL DEFAULT 1",
+                    "source_quotation_id": "INTEGER REFERENCES quotations(id) ON DELETE RESTRICT",
+                }
+                plan_price_added = "plan_price" not in columns
+                with db.engine.begin() as connection:
+                    for name, definition in additions.items():
+                        if name not in columns:
+                            connection.execute(text(f"ALTER TABLE subscriptions ADD COLUMN {name} {definition}"))
+                    if plan_price_added:
+                        # Drafts are still editable, so initialize their new
+                        # agreed-price snapshot from the selected plan. Existing
+                        # issued/confirmed records remain at zero to preserve
+                        # the totals historically recorded for them.
+                        connection.execute(text(
+                            "UPDATE subscriptions SET plan_price = COALESCE("
+                            "(SELECT price FROM plans WHERE plans.id = subscriptions.plan_id), 0) "
+                            "WHERE status = 'draft'"
+                        ))
+                    connection.execute(text(
+                        "CREATE UNIQUE INDEX IF NOT EXISTS uq_subscriptions_source_quotation "
+                        "ON subscriptions (source_quotation_id)"
+                    ))
+                # create_all may be disabled in production, but this additive
+                # lifecycle table still needs to be installed on SQLite.
+                with db.engine.begin() as connection:
+                    models.SubscriptionRenewal.__table__.create(bind=connection, checkfirst=True)
 
     return app

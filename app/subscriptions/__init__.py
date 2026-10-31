@@ -1,4 +1,5 @@
 from datetime import date
+from decimal import Decimal
 
 from flask import Blueprint, abort, flash, jsonify, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
@@ -7,12 +8,19 @@ from sqlalchemy import select
 from ..extensions import db
 from ..models import Customer, Plan, Product, Subscription
 from .service import (
-    SubscriptionError, billing_data, close_expired, convert_quotation,
+    SubscriptionError, billing_data, close_expired, convert_quotation, expire_subscriptions, money,
     create_subscription, renew, transition, update_subscription,
 )
 
 bp = Blueprint("subscriptions", __name__)
 MANAGER_ROLES = {"admin", "staff"}
+
+
+@bp.before_app_request
+def sweep_expired_subscriptions():
+    # Expiry is a lifecycle rule, not a side effect of opening a subscription page.
+    if request.endpoint != "static":
+        expire_subscriptions()
 
 
 def is_manager():
@@ -108,10 +116,15 @@ def edit(subscription_id):
 @login_required
 def detail(subscription_id):
     subscription = visible_subscription(subscription_id)
-    subtotal = sum((item.unit_price * item.quantity for item in subscription.items), start=0)
-    tax_total = sum((item.amount - item.unit_price * item.quantity for item in subscription.items), start=0)
+    plan_base = subscription.plan_price * subscription.plan_quantity
+    subtotal = plan_base + sum((item.unit_price * item.quantity for item in subscription.items), start=Decimal("0.00"))
+    plan_tax = money(plan_base * subscription.plan_tax_rate / Decimal("100"))
+    plan_amount = plan_base + plan_tax
+    tax_total = plan_tax
+    tax_total += sum((item.amount - item.unit_price * item.quantity for item in subscription.items), start=Decimal("0.00"))
     return render_template("subscription_detail.html", subscription=subscription,
-                           subtotal=subtotal, tax_total=tax_total, can_manage=is_manager())
+                           plan_base=plan_base, plan_amount=plan_amount, subtotal=subtotal,
+                           tax_total=tax_total, can_manage=is_manager(), today=date.today())
 
 
 @bp.post("/<int:subscription_id>/confirm")

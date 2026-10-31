@@ -126,6 +126,9 @@ class Quotation(db.Model):
     total_amount = db.Column(db.Numeric(12, 2), nullable=False, default=Decimal("0.00"))
     customer = db.relationship("Customer", back_populates="quotations")
     items = db.relationship("QuotationItem", back_populates="quotation", cascade="all, delete-orphan")
+    converted_subscription = db.relationship(
+        "Subscription", back_populates="source_quotation", uselist=False, passive_deletes="all"
+    )
 
 
 class QuotationItem(db.Model):
@@ -170,6 +173,12 @@ class Subscription(db.Model):
     subscription_number = db.Column(db.String(50), nullable=False, unique=True, index=True)
     customer_id = db.Column(db.Integer, db.ForeignKey("customers.id", ondelete="RESTRICT"), nullable=False, index=True)
     plan_id = db.Column(db.Integer, db.ForeignKey("plans.id", ondelete="RESTRICT"), nullable=False, index=True)
+    source_quotation_id = db.Column(db.Integer, db.ForeignKey("quotations.id", ondelete="RESTRICT"), nullable=True)
+    # Snapshot the agreed recurring plan price and tax so later catalog changes
+    # cannot alter historical subscription pricing.
+    plan_price = db.Column(db.Numeric(12, 2), nullable=False, default=Decimal("0.00"))
+    plan_tax_rate = db.Column(db.Numeric(7, 4), nullable=False, default=Decimal("0.0000"))
+    plan_quantity = db.Column(db.Integer, nullable=False, default=1)
     start_date = db.Column(db.Date, nullable=False, default=date.today)
     expiry_date = db.Column(db.Date)
     payment_terms = db.Column(db.String(80))
@@ -177,8 +186,29 @@ class Subscription(db.Model):
     total_amount = db.Column(db.Numeric(12, 2), nullable=False, default=Decimal("0.00"))
     customer = db.relationship("Customer", back_populates="subscriptions")
     plan = db.relationship("Plan", back_populates="subscriptions")
+    source_quotation = db.relationship("Quotation", back_populates="converted_subscription")
     items = db.relationship("SubscriptionItem", back_populates="subscription", cascade="all, delete-orphan")
     invoices = db.relationship("Invoice", back_populates="subscription")
+    renewals = db.relationship("SubscriptionRenewal", back_populates="subscription", passive_deletes="all")
+    __table_args__ = (CheckConstraint(
+        "plan_price >= 0 AND plan_tax_rate >= 0 AND plan_tax_rate <= 100 AND plan_quantity > 0",
+        name="ck_subscription_plan_pricing",
+    ), Index("uq_subscriptions_source_quotation", "source_quotation_id", unique=True))
+
+
+class SubscriptionRenewal(db.Model):
+    """Immutable record of a successful renewal period."""
+    __tablename__ = "subscription_renewals"
+    id = db.Column(db.Integer, primary_key=True)
+    subscription_id = db.Column(db.Integer, db.ForeignKey("subscriptions.id", ondelete="RESTRICT"), nullable=False, index=True)
+    previous_expiry_date = db.Column(db.Date, nullable=False)
+    new_expiry_date = db.Column(db.Date, nullable=False)
+    renewed_at = db.Column(db.Date, nullable=False, default=date.today)
+    subscription = db.relationship("Subscription", back_populates="renewals")
+    __table_args__ = (
+        CheckConstraint("new_expiry_date > previous_expiry_date", name="ck_subscription_renewal_dates"),
+        Index("uq_subscription_renewal_period", "subscription_id", "previous_expiry_date", unique=True),
+    )
 
 
 class SubscriptionItem(db.Model):
