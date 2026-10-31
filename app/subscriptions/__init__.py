@@ -5,7 +5,7 @@ from flask_login import current_user, login_required
 from sqlalchemy import select
 
 from ..extensions import db
-from ..models import Customer, Plan, Product, Subscription
+from ..models import Customer, Plan, Product, Subscription, Tax
 from .service import (
     SubscriptionError, billing_data, close_expired, convert_quotation,
     create_subscription, renew, transition, update_subscription,
@@ -46,7 +46,8 @@ def form_context(subscription=None):
     return {
         "customers": db.session.scalars(select(Customer).order_by(Customer.company_name)).all(),
         "plans": db.session.scalars(select(Plan).where(Plan.is_active.is_(True)).order_by(Plan.name)).all(),
-        "products": db.session.scalars(select(Product).order_by(Product.name)).all(),
+        "products": db.session.scalars(select(Product).where(Product.is_active.is_(True)).order_by(Product.name)).all(),
+        "taxes": db.session.scalars(select(Tax).where(Tax.is_active.is_(True)).order_by(Tax.name)).all(),
         "subscription": subscription,
         "today": date.today().isoformat(),
     }
@@ -207,4 +208,8 @@ def product_data(product_id):
     product = db.session.get(Product, product_id)
     if product is None:
         abort(404)
-    return jsonify(id=product.id, name=product.name, sales_price=str(product.sales_price))
+    from decimal import Decimal
+    return jsonify(id=product.id, name=product.name, sales_price=str(product.sales_price),
+                   variants=[{"id": variant.id, "name": variant.variant_name,
+                              "price": str(Decimal(product.sales_price) + Decimal(variant.additional_price))}
+                             for variant in product.variants if variant.is_active])

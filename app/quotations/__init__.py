@@ -5,7 +5,7 @@ from flask_login import current_user, login_required
 from sqlalchemy import select
 
 from ..extensions import db
-from ..models import Customer, Plan, Product, Quotation, QuotationTemplate
+from ..models import Customer, Plan, Product, Quotation, QuotationTemplate, Tax
 from .service import (
     QuotationError, convert_to_subscription, create_quotation, save_template,
     set_status, update_quotation,
@@ -49,6 +49,7 @@ def form_context(quotation=None):
     return {
         "customers": db.session.scalars(select(Customer).order_by(Customer.company_name)).all(),
         "products": db.session.scalars(select(Product).order_by(Product.name)).all(),
+        "taxes": db.session.scalars(select(Tax).where(Tax.is_active.is_(True)).order_by(Tax.name)).all(),
         "templates": templates,
         "template_data": [{
             "id": template.id,
