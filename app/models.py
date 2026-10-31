@@ -13,7 +13,7 @@ class User(UserMixin, db.Model):
     name = db.Column(db.String(120), nullable=False)
     email = db.Column(db.String(255), unique=True, nullable=False, index=True)
     password_hash = db.Column(db.String(255), nullable=False)
-    role = db.Column(db.String(40), nullable=False, default="member", index=True)
+    role = db.Column(db.String(40), nullable=False, default="customer", index=True)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     customer = db.relationship("Customer", back_populates="user", uselist=False)
 
