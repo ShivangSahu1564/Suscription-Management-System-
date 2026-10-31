@@ -1,0 +1,50 @@
+{% extends 'base.html' %}
+{% block title %}{{ invoice.invoice_number }}{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+  <div><div class="eyebrow">INVOICE</div><h1 class="h2 mb-1">{{ invoice.invoice_number }}</h1><div class="text-secondary">{{ invoice.customer.company_name }} · Subscription {{ invoice.subscription.subscription_number }}</div></div>
+  <div class="d-flex flex-wrap gap-2"><a class="btn btn-outline-secondary" href="{{ url_for('billing.print_invoice', invoice_id=invoice.id) }}">Printable view</a><a class="btn btn-light" href="{{ url_for('billing.invoices') }}">All invoices</a></div>
+</div>
+<div class="row g-3 mb-4">
+  <div class="col-md-3"><div class="card border-0 shadow-sm h-100"><div class="card-body"><div class="eyebrow">STATUS</div><span class="badge fs-6 {{ badge_class(metrics.display_status) }}">{{ metrics.display_status }}</span></div></div></div>
+  <div class="col-md-3"><div class="card border-0 shadow-sm h-100"><div class="card-body"><div class="eyebrow">INVOICE DATE</div><strong>{{ invoice.invoice_date }}</strong></div></div></div>
+  <div class="col-md-3"><div class="card border-0 shadow-sm h-100"><div class="card-body"><div class="eyebrow">DUE DATE</div><strong>{{ invoice.due_date or '—' }}</strong></div></div></div>
+  <div class="col-md-3"><div class="card border-0 shadow-sm h-100"><div class="card-body"><div class="eyebrow">BILLING PERIOD</div><strong>{{ invoice.billing_period_start }} – {{ invoice.billing_period_end }}</strong></div></div></div>
+</div>
+<div class="row g-4">
+  <div class="col-lg-8"><div class="card border-0 shadow-sm mb-4"><div class="card-body p-4">
+    <h2 class="h5 mb-3">Customer details</h2><div class="fw-semibold">{{ invoice.customer.company_name }}</div>{% if invoice.customer.address %}<div class="text-secondary">{{ invoice.customer.address }}</div>{% endif %}{% if invoice.customer.phone %}<div class="text-secondary">{{ invoice.customer.phone }}</div>{% endif %}
+  </div></div>
+  <div class="card border-0 shadow-sm"><div class="card-body p-4"><h2 class="h5 mb-3">Invoice items</h2><div class="table-responsive"><table class="table align-middle"><thead class="table-light"><tr><th>Description</th><th>Quantity</th><th class="text-end">Unit price</th><th class="text-end">Tax rate</th><th class="text-end">Taxable amount</th></tr></thead><tbody>
+    {% for item in invoice.items %}<tr><td>{{ item.description }}</td><td>{{ item.quantity }}</td><td class="text-end">{{ '%.2f'|format(item.unit_price) }}</td><td class="text-end">{{ item.tax_rate }}%</td><td class="text-end">{{ '%.2f'|format(item.amount) }}</td></tr>{% else %}<tr><td colspan="5" class="text-center text-secondary">No invoice items.</td></tr>{% endfor %}
+  </tbody></table></div></div></div></div>
+  <div class="col-lg-4"><div class="card border-0 shadow-sm mb-4"><div class="card-body p-4"><h2 class="h5 mb-3">Summary</h2>
+    <div class="d-flex justify-content-between py-1"><span>Subtotal</span><span>{{ '%.2f'|format(invoice.subtotal) }}</span></div>
+    <div class="d-flex justify-content-between py-1"><span>Discount</span><span>−{{ '%.2f'|format(invoice.discount_amount) }}</span></div>
+    <div class="d-flex justify-content-between py-1"><span>Tax</span><span>{{ '%.2f'|format(invoice.tax_amount) }}</span></div>
+    <div class="d-flex justify-content-between border-top mt-2 pt-2 fs-5"><strong>Total</strong><strong>{{ '%.2f'|format(invoice.total_amount) }}</strong></div>
+    <div class="d-flex justify-content-between py-1 mt-2"><span>Paid</span><span>{{ '%.2f'|format(metrics.paid_amount) }}</span></div>
+    <div class="d-flex justify-content-between border-top pt-2"><strong>Outstanding</strong><strong>{{ '%.2f'|format(metrics.balance_due) }}</strong></div>
+  </div></div>
+  <div class="card border-0 shadow-sm"><div class="card-body p-4"><div class="d-flex justify-content-between align-items-center gap-2 mb-3"><h2 class="h5 mb-0">Payments received</h2><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('billing.invoice_payments', invoice_id=invoice.id) }}">Payment history</a></div>
+    {% for payment in invoice.payments|sort(attribute='payment_date', reverse=true) %}<div class="d-flex justify-content-between gap-2 py-2 border-bottom"><div><a class="fw-semibold" href="{{ url_for('billing.payment_detail', payment_id=payment.id) }}">{{ payment.payment_method|replace('_',' ')|title }}</a><div class="small text-secondary">{{ payment.payment_date }}{% if payment.transaction_reference %} · Ref {{ payment.transaction_reference }}{% endif %}</div></div><strong>{{ '%.2f'|format(payment.amount) }}</strong></div>{% else %}<p class="text-secondary mb-0">No payments recorded.</p>{% endfor %}
+  </div></div></div>
+</div>
+{% if can_manage and invoice.status == 'confirmed' and metrics.balance_due > 0 %}
+<section class="card border-0 shadow-sm mt-4"><div class="card-body p-4"><h2 class="h5">Record a payment</h2><p class="text-secondary">Outstanding balance: <strong>{{ '%.2f'|format(metrics.balance_due) }}</strong></p>
+  <form method="post" action="{{ url_for('billing.create_payment', invoice_id=invoice.id) }}" class="row g-3">
+    <input type="hidden" name="csrf_token" value="{{ billing_csrf_token() }}"><input type="hidden" name="submission_key" value="{{ new_submission_key }}">
+    <div class="col-md-4"><label class="form-label" for="payment_amount">Amount</label><input class="form-control" id="payment_amount" name="amount" type="number" min="0.01" step="0.01" max="{{ metrics.balance_due }}" required></div>
+    <div class="col-md-4"><label class="form-label" for="payment_method">Method</label><select class="form-select" id="payment_method" name="payment_method" required>{% for key,label in payment_methods.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}</select></div>
+    <div class="col-md-4"><label class="form-label" for="payment_date">Payment date</label><input class="form-control" id="payment_date" name="payment_date" type="date" value="{{ today_date|default('') }}"></div>
+    <div class="col-md-6"><label class="form-label" for="transaction_reference">Transaction reference <span class="text-secondary">(if applicable)</span></label><input class="form-control" id="transaction_reference" name="transaction_reference" maxlength="120"></div>
+    <div class="col-md-6"><label class="form-label" for="payment_note">Note</label><input class="form-control" id="payment_note" name="note" maxlength="2000"></div>
+    <div class="col-12"><button class="btn btn-primary" type="submit">Record payment</button></div>
+  </form>
+</div></section>
+{% endif %}
+{% if can_manage %}<div class="d-flex flex-wrap gap-2 mt-4">
+  {% if invoice.status == 'draft' %}<form method="post" action="{{ url_for('billing.confirm', invoice_id=invoice.id) }}"><input type="hidden" name="csrf_token" value="{{ billing_csrf_token() }}"><button class="btn btn-success" type="submit">Confirm invoice</button></form>{% endif %}
+  {% if invoice.status in ['draft', 'confirmed'] and metrics.paid_amount == 0 %}<form method="post" action="{{ url_for('billing.cancel', invoice_id=invoice.id) }}"><input type="hidden" name="csrf_token" value="{{ billing_csrf_token() }}"><button class="btn btn-outline-danger" type="submit">Cancel invoice</button></form>{% endif %}
+</div>{% endif %}
+{% endblock %}

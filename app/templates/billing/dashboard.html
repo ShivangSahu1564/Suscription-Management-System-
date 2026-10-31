@@ -1,0 +1,46 @@
+{% extends 'base.html' %}
+{% block title %}Billing dashboard{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
+  <div><div class="eyebrow">FINANCIAL OVERVIEW</div><h1 class="h2 mb-0">Billing dashboard</h1></div>
+  <div class="d-flex flex-wrap gap-2">
+    <a class="btn btn-outline-primary" href="{{ url_for('billing.invoices') }}">View invoices</a>
+    <a class="btn btn-outline-secondary" href="{{ url_for('billing.payment_list') }}">Payment history</a>
+    {% if can_manage %}<form class="d-flex gap-2" method="post" action="{{ url_for('billing.index') }}">
+      <input type="hidden" name="csrf_token" value="{{ billing_csrf_token() }}">
+      <label class="visually-hidden" for="subscription-to-invoice">Active subscription</label>
+      <select class="form-select" id="subscription-to-invoice" required onchange="this.form.action=this.selectedOptions[0].dataset.action">
+        <option value="">Generate from active subscription…</option>
+        {% for subscription in active_subscriptions %}<option value="{{ subscription.id }}" data-action="{{ url_for('billing.generate', subscription_id=subscription.id) }}">{{ subscription.subscription_number }} · {{ subscription.customer.company_name }}</option>{% endfor %}
+      </select>
+      <button class="btn btn-primary" type="submit">Generate invoice</button>
+    </form>{% endif %}
+  </div>
+</div>
+<form class="card card-body border-0 shadow-sm mb-4" method="get" action="{{ url_for('billing.index') }}">
+  <div class="row g-2 align-items-end">
+    <div class="col-sm-4 col-lg-3"><label class="form-label" for="period">Reporting period</label><select class="form-select" id="period" name="period" onchange="this.form.requestSubmit()">
+      {% for key,label in [('today','Today'),('this_week','This week'),('this_month','This month'),('this_year','This year'),('custom','Custom range')] %}<option value="{{ key }}" {% if period == key %}selected{% endif %}>{{ label }}</option>{% endfor %}
+    </select></div>
+    <div class="col-sm-3"><label class="form-label" for="start">From</label><input class="form-control" type="date" id="start" name="start" value="{{ start }}"></div>
+    <div class="col-sm-3"><label class="form-label" for="end">To</label><input class="form-control" type="date" id="end" name="end" value="{{ end }}"></div>
+    <div class="col-sm-2"><button class="btn btn-primary w-100" type="submit">Apply</button></div>
+  </div>
+</form>
+<div class="row g-3 mb-4">
+  <div class="col-sm-6 col-xl-3"><div class="card border-0 shadow-sm h-100"><div class="card-body"><div class="eyebrow">TOTAL INVOICES</div><div class="display-6 fw-semibold">{{ summary.total_invoices }}</div></div></div></div>
+  <div class="col-sm-6 col-xl-3"><div class="card border-0 shadow-sm h-100"><div class="card-body"><div class="eyebrow">PAID INVOICES</div><div class="display-6 fw-semibold text-success">{{ summary.paid_invoices }}</div></div></div></div>
+  <div class="col-sm-6 col-xl-3"><div class="card border-0 shadow-sm h-100"><div class="card-body"><div class="eyebrow">OUTSTANDING</div><div class="display-6 fw-semibold">{{ summary.outstanding_invoices }}</div></div></div></div>
+  <div class="col-sm-6 col-xl-3"><div class="card border-0 shadow-sm h-100"><div class="card-body"><div class="eyebrow">OVERDUE</div><div class="display-6 fw-semibold text-danger">{{ summary.overdue_invoices }}</div></div></div></div>
+</div>
+<div class="row g-3 mb-4">
+  <div class="col-md-4"><div class="card border-0 shadow-sm h-100"><div class="card-body"><div class="eyebrow">REVENUE RECEIVED</div><div class="h2 mb-0">{{ '%.2f'|format(summary.revenue_received) }}</div></div></div></div>
+  <div class="col-md-4"><div class="card border-0 shadow-sm h-100"><div class="card-body"><div class="eyebrow">TOTAL OUTSTANDING</div><div class="h2 mb-0">{{ '%.2f'|format(summary.total_outstanding) }}</div></div></div></div>
+  <div class="col-md-4"><div class="card border-0 shadow-sm h-100"><div class="card-body"><div class="eyebrow">PAYMENTS RECEIVED</div><div class="h2 mb-0">{{ summary.payment_count }}</div></div></div></div>
+</div>
+<div class="row g-4" id="reports">
+  <div class="col-lg-6"><section class="card border-0 shadow-sm h-100"><div class="card-body"><h2 class="h5">Invoice reports</h2><div class="row text-center g-3 mt-1"><div class="col-4"><div class="eyebrow">PAID</div><strong>{{ summary.paid_invoices }}</strong></div><div class="col-4"><div class="eyebrow">UNPAID</div><strong>{{ summary.unpaid_invoices }}</strong></div><div class="col-4"><div class="eyebrow">PARTIALLY PAID</div><strong>{{ summary.partially_paid_invoices }}</strong></div><div class="col-6"><div class="eyebrow">OVERDUE</div><strong>{{ summary.overdue_invoices }}</strong></div><div class="col-6"><div class="eyebrow">CANCELLED</div><strong>{{ summary.cancelled_invoices }}</strong></div></div></div></section></div>
+  <div class="col-lg-6"><section class="card border-0 shadow-sm h-100"><div class="card-body"><h2 class="h5">Payment method breakdown</h2><div class="table-responsive"><table class="table table-sm align-middle"><thead><tr><th>Method</th><th class="text-end">Payments</th><th class="text-end">Collected</th></tr></thead><tbody>{% for method,data in summary.method_breakdown.items() %}<tr><td>{{ method }}</td><td class="text-end">{{ data.count }}</td><td class="text-end">{{ '%.2f'|format(data.amount) }}</td></tr>{% else %}<tr><td colspan="3" class="text-secondary">No payments in this period.</td></tr>{% endfor %}</tbody></table></div></div></section></div>
+  <div class="col-12"><section class="card border-0 shadow-sm"><div class="card-body"><h2 class="h5">Monthly revenue</h2><div class="d-flex flex-wrap gap-3">{% for month,amount in summary.monthly_revenue %}<div class="border rounded px-3 py-2"><div class="eyebrow">{{ month }}</div><strong>{{ '%.2f'|format(amount) }}</strong></div>{% else %}<p class="text-secondary mb-0">No payments in this period.</p>{% endfor %}</div><div class="small text-secondary mt-3">Cash {{ '%.2f'|format(summary.cash_payments) }} · UPI {{ '%.2f'|format(summary.upi_payments) }} · Card {{ '%.2f'|format(summary.card_payments) }} · Bank transfer {{ '%.2f'|format(summary.bank_transfer_payments) }}</div></div></section></div>
+</div>
+{% endblock %}

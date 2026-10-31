@@ -1,0 +1,8 @@
+{% extends 'base.html' %}
+{% block title %}Payments{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4"><div><div class="eyebrow">BILLING</div><h1 class="h2 mb-0">{% if invoice %}Payments for {{ invoice.invoice_number }}{% else %}Payment history{% endif %}</h1></div><a class="btn btn-outline-secondary" href="{{ url_for('billing.index') }}">Financial dashboard</a></div>
+<div class="card border-0 shadow-sm"><div class="table-responsive"><table class="table align-middle mb-0"><thead class="table-light"><tr><th>Payment</th><th>Invoice</th><th>Customer</th><th>Method</th><th>Date</th><th>Reference</th><th class="text-end">Amount</th><th></th></tr></thead><tbody>
+{% for payment in payments %}<tr><td class="fw-semibold">PAY-{{ '%06d'|format(payment.id) }}</td><td><a href="{{ url_for('billing.detail', invoice_id=payment.invoice_id) }}">{{ payment.invoice.invoice_number }}</a></td><td>{{ payment.invoice.customer.company_name }}</td><td>{{ method_labels.get(payment.payment_method, payment.payment_method|title) }}</td><td>{{ payment.payment_date }}</td><td>{{ payment.transaction_reference or '—' }}</td><td class="text-end">{{ '%.2f'|format(payment.amount) }}</td><td class="text-end"><a class="btn btn-sm btn-outline-primary" href="{{ url_for('billing.payment_detail', payment_id=payment.id) }}">View</a></td></tr>{% else %}<tr><td colspan="8" class="text-center text-secondary py-5">No payment records found.</td></tr>{% endfor %}
+</tbody></table></div></div>
+{% endblock %}
