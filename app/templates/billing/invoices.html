@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+{% block title %}Invoices{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
+  <div><div class="eyebrow">BILLING</div><h1 class="h2 mb-0">Invoices</h1></div>
+  <a class="btn btn-outline-secondary" href="{{ url_for('billing.index') }}">Billing dashboard</a>
+</div>
+<div class="card border-0 shadow-sm mb-3"><div class="card-body">
+  <form class="row g-2 align-items-center" method="get" action="{{ url_for('billing.invoices') }}">
+    <div class="col-md-8"><label class="visually-hidden" for="invoice-search">Search invoices</label><input class="form-control" id="invoice-search" name="q" value="{{ search }}" placeholder="Search invoice number or customer"></div>
+    <input type="hidden" name="status" value="{{ status_filter }}">
+    <div class="col-auto"><button class="btn btn-primary" type="submit">Search</button></div>
+    {% if search %}<div class="col-auto"><a class="btn btn-outline-secondary" href="{{ url_for('billing.invoices', status=status_filter) }}">Clear</a></div>{% endif %}
+  </form>
+</div></div>
+<nav class="mb-3" aria-label="Invoice status filters"><div class="nav nav-pills flex-wrap gap-2">
+  {% for key, label in [('all','All invoices'),('paid','Paid'),('unpaid','Unpaid'),('partially_paid','Partially paid'),('overdue','Overdue'),('cancelled','Cancelled')] %}
+  <a class="nav-link {% if status_filter == key %}active{% endif %}" href="{{ url_for('billing.invoices', status=key, q=search) }}">{{ label }}</a>
+  {% endfor %}
+</div></nav>
+<div class="card border-0 shadow-sm"><div class="table-responsive"><table class="table align-middle mb-0">
+  <thead class="table-light"><tr><th>Invoice</th><th>Customer</th><th>Invoice date</th><th>Due date</th><th class="text-end">Total</th><th class="text-end">Paid</th><th class="text-end">Outstanding</th><th>Status</th><th></th></tr></thead>
+  <tbody>{% for row in invoice_rows %}{% set invoice = row.invoice %}
+    <tr><td class="fw-semibold">{{ invoice.invoice_number }}</td><td>{{ invoice.customer.company_name }}</td><td>{{ invoice.invoice_date }}</td><td>{{ invoice.due_date or '—' }}</td>
+      <td class="text-end">{{ '%.2f'|format(invoice.total_amount) }}</td><td class="text-end">{{ '%.2f'|format(row.paid_amount) }}</td><td class="text-end">{{ '%.2f'|format(row.balance_due) }}</td>
+      <td><span class="badge {{ badge_class(row.display_status) }}">{{ row.display_status }}</span></td>
+      <td class="text-end"><a class="btn btn-sm btn-outline-primary" href="{{ url_for('billing.detail', invoice_id=invoice.id) }}">View details</a></td></tr>
+  {% else %}<tr><td colspan="9" class="text-center text-secondary py-5">No invoices match this view.</td></tr>{% endfor %}</tbody>
+</table></div></div>
+{% endblock %}

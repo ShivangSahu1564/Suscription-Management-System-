@@ -7,6 +7,13 @@ from sqlalchemy import CheckConstraint, Index
 from .extensions import db, login_manager
 
 
+discount_products = db.Table(
+    "discount_products",
+    db.Column("discount_id", db.Integer, db.ForeignKey("discounts.id", ondelete="CASCADE"), primary_key=True),
+    db.Column("product_id", db.Integer, db.ForeignKey("products.id", ondelete="CASCADE"), primary_key=True),
+)
+
+
 class User(UserMixin, db.Model):
     __tablename__ = "users"
     id = db.Column(db.Integer, primary_key=True)
@@ -63,6 +70,7 @@ class Product(db.Model):
     quotation_items = db.relationship("QuotationItem", back_populates="product")
     subscription_items = db.relationship("SubscriptionItem", back_populates="product")
     invoice_items = db.relationship("InvoiceItem", back_populates="product")
+    discounts = db.relationship("Discount", secondary=discount_products, back_populates="products")
     __table_args__ = (CheckConstraint("sales_price >= 0 AND cost_price >= 0", name="ck_product_prices_nonnegative"),)
 
 
@@ -120,24 +128,26 @@ class Discount(db.Model):
     discount_type = db.Column(db.String(30), nullable=False)
     value = db.Column(db.Numeric(12, 2), nullable=False)
     minimum_quantity = db.Column(db.Integer, nullable=False, default=1)
+    minimum_purchase_amount = db.Column(db.Numeric(12, 2), nullable=False, default=Decimal("0.00"))
     start_date = db.Column(db.Date)
     end_date = db.Column(db.Date)
     usage_limit = db.Column(db.Integer)
     usage_count = db.Column(db.Integer, nullable=False, default=0)
-    minimum_purchase_amount = db.Column(db.Numeric(12, 2), nullable=False, default=Decimal("0.00"))
-    is_active = db.Column(db.Boolean, nullable=False, default=True, index=True)
-    products = db.relationship("DiscountProduct", back_populates="discount", cascade="all, delete-orphan")
-    __table_args__ = (CheckConstraint("value >= 0 AND minimum_quantity > 0 AND usage_count >= 0 AND minimum_purchase_amount >= 0", name="ck_discount_values_nonnegative"),)
+is_active = db.Column(db.Boolean, nullable=False, default=True, index=True)
 
+products = db.relationship(
+    "DiscountProduct",
+    back_populates="discount",
+    cascade="all, delete-orphan"
+)
 
-class DiscountProduct(db.Model):
-    __tablename__ = "discount_products"
-    id = db.Column(db.Integer, primary_key=True)
-    discount_id = db.Column(db.Integer, db.ForeignKey("discounts.id", ondelete="CASCADE"), nullable=False, index=True)
-    product_id = db.Column(db.Integer, db.ForeignKey("products.id", ondelete="CASCADE"), nullable=False, index=True)
-    discount = db.relationship("Discount", back_populates="products")
-    product = db.relationship("Product")
-    __table_args__ = (Index("ix_discount_products_pair", "discount_id", "product_id", unique=True),)
+__table_args__ = (
+    CheckConstraint(
+        "value >= 0 AND minimum_quantity > 0 AND usage_count >= 0 "
+        "AND minimum_purchase_amount >= 0",
+        name="ck_discount_values_nonnegative",
+    ),
+)
 
 
 class Quotation(db.Model):
@@ -228,6 +238,8 @@ class Invoice(db.Model):
     customer_id = db.Column(db.Integer, db.ForeignKey("customers.id", ondelete="RESTRICT"), nullable=False, index=True)
     invoice_date = db.Column(db.Date, nullable=False, default=date.today)
     due_date = db.Column(db.Date)
+    billing_period_start = db.Column(db.Date)
+    billing_period_end = db.Column(db.Date)
     subtotal = db.Column(db.Numeric(12, 2), nullable=False, default=Decimal("0.00"))
     tax_amount = db.Column(db.Numeric(12, 2), nullable=False, default=Decimal("0.00"))
     discount_amount = db.Column(db.Numeric(12, 2), nullable=False, default=Decimal("0.00"))
@@ -237,7 +249,10 @@ class Invoice(db.Model):
     customer = db.relationship("Customer", back_populates="invoices")
     items = db.relationship("InvoiceItem", back_populates="invoice", cascade="all, delete-orphan")
     payments = db.relationship("Payment", back_populates="invoice", cascade="all, delete-orphan")
-    __table_args__ = (CheckConstraint("subtotal >= 0 AND tax_amount >= 0 AND discount_amount >= 0 AND total_amount >= 0", name="ck_invoice_totals_nonnegative"),)
+    __table_args__ = (
+        CheckConstraint("subtotal >= 0 AND tax_amount >= 0 AND discount_amount >= 0 AND total_amount >= 0", name="ck_invoice_totals_nonnegative"),
+        Index("uq_invoice_subscription_billing_period", "subscription_id", "billing_period_start", "billing_period_end", unique=True),
+    )
 
 
 class InvoiceItem(db.Model):
@@ -248,6 +263,7 @@ class InvoiceItem(db.Model):
     description = db.Column(db.String(255), nullable=False)
     quantity = db.Column(db.Integer, nullable=False, default=1)
     unit_price = db.Column(db.Numeric(12, 2), nullable=False)
+    tax_rate = db.Column(db.Numeric(7, 4))
     amount = db.Column(db.Numeric(12, 2), nullable=False)
     invoice = db.relationship("Invoice", back_populates="items")
     product = db.relationship("Product", back_populates="invoice_items")
@@ -261,6 +277,11 @@ class Payment(db.Model):
     payment_method = db.Column(db.String(50), nullable=False)
     amount = db.Column(db.Numeric(12, 2), nullable=False)
     payment_date = db.Column(db.Date, nullable=False, default=date.today)
+    transaction_reference = db.Column(db.String(120))
+    submission_key = db.Column(db.String(64))
     note = db.Column(db.Text)
     invoice = db.relationship("Invoice", back_populates="payments")
-    __table_args__ = (CheckConstraint("amount > 0", name="ck_payment_amount_positive"),)
+    __table_args__ = (
+        CheckConstraint("amount > 0", name="ck_payment_amount_positive"),
+        Index("uq_payments_submission_key", "submission_key", unique=True),
+    )
