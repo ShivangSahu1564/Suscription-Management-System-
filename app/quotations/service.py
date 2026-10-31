@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError
 
 from ..extensions import db
 from ..models import (
-    Customer, Product, Quotation, QuotationItem, QuotationTemplate,
+    Customer, Product, Quotation, QuotationItem, QuotationTemplate, Tax,
     QuotationTemplateItem,
 )
 from ..subscriptions.service import SubscriptionError, convert_quotation
@@ -30,10 +30,11 @@ def parse_lines(form):
     product_ids = form.getlist("product_id")
     quantities = form.getlist("quantity")
     tax_rates = form.getlist("tax_rate")
-    if not product_ids or len(product_ids) != len(quantities) or len(product_ids) != len(tax_rates):
+    tax_ids = form.getlist("tax_id")
+    if not product_ids or len(product_ids) != len(quantities) or len(product_ids) != len(tax_rates) or (tax_ids and len(product_ids) != len(tax_ids)):
         raise QuotationError("Add at least one complete product line.")
     lines = []
-    for product_id, raw_quantity, raw_tax in zip(product_ids, quantities, tax_rates):
+    for index, (product_id, raw_quantity, raw_tax) in enumerate(zip(product_ids, quantities, tax_rates)):
         try:
             product = db.session.get(Product, int(product_id))
             quantity = int(raw_quantity)
@@ -44,6 +45,13 @@ def parse_lines(form):
             raise QuotationError("Tax rate must be a finite number.")
         if product is None:
             raise QuotationError("A selected product no longer exists.")
+        if not product.is_active:
+            raise QuotationError("Inactive products cannot be added to a new quotation.")
+        if tax_ids and tax_ids[index]:
+            tax = db.session.get(Tax, int(tax_ids[index]))
+            if tax is None or not tax.is_active:
+                raise QuotationError("Select an active tax rule.")
+            tax_rate = Decimal(tax.rate)
         if quantity <= 0:
             raise QuotationError("Quantities must be greater than zero.")
         if tax_rate < 0 or tax_rate > 100:

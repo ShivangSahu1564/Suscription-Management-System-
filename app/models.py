@@ -64,6 +64,7 @@ class Product(db.Model):
     sales_price = db.Column(db.Numeric(12, 2), nullable=False, default=Decimal("0.00"))
     cost_price = db.Column(db.Numeric(12, 2), nullable=False, default=Decimal("0.00"))
     notes = db.Column(db.Text)
+    is_active = db.Column(db.Boolean, nullable=False, default=True, index=True)
     variants = db.relationship("ProductVariant", back_populates="product", cascade="all, delete-orphan")
     plan_links = db.relationship("PlanProduct", back_populates="product")
     quotation_items = db.relationship("QuotationItem", back_populates="product")
@@ -79,6 +80,7 @@ class ProductVariant(db.Model):
     product_id = db.Column(db.Integer, db.ForeignKey("products.id", ondelete="CASCADE"), nullable=False, index=True)
     variant_name = db.Column(db.String(120), nullable=False)
     additional_price = db.Column(db.Numeric(12, 2), nullable=False, default=Decimal("0.00"))
+    is_active = db.Column(db.Boolean, nullable=False, default=True, index=True)
     product = db.relationship("Product", back_populates="variants")
     __table_args__ = (CheckConstraint("additional_price >= 0", name="ck_variant_price_nonnegative"),)
 
@@ -131,15 +133,21 @@ class Discount(db.Model):
     end_date = db.Column(db.Date)
     usage_limit = db.Column(db.Integer)
     usage_count = db.Column(db.Integer, nullable=False, default=0)
-    is_active = db.Column(db.Boolean, nullable=False, default=True, index=True)
-    products = db.relationship("Product", secondary=discount_products, back_populates="discounts")
-    __table_args__ = (
-        CheckConstraint(
-            "value >= 0 AND minimum_quantity > 0 AND usage_count >= 0 "
-            "AND minimum_purchase_amount >= 0",
-            name="ck_discount_values_nonnegative",
-        ),
-    )
+is_active = db.Column(db.Boolean, nullable=False, default=True, index=True)
+
+products = db.relationship(
+    "DiscountProduct",
+    back_populates="discount",
+    cascade="all, delete-orphan"
+)
+
+__table_args__ = (
+    CheckConstraint(
+        "value >= 0 AND minimum_quantity > 0 AND usage_count >= 0 "
+        "AND minimum_purchase_amount >= 0",
+        name="ck_discount_values_nonnegative",
+    ),
+)
 
 
 class Quotation(db.Model):
