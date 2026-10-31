@@ -126,12 +126,20 @@ class Discount(db.Model):
     discount_type = db.Column(db.String(30), nullable=False)
     value = db.Column(db.Numeric(12, 2), nullable=False)
     minimum_quantity = db.Column(db.Integer, nullable=False, default=1)
+    minimum_purchase_amount = db.Column(db.Numeric(12, 2), nullable=False, default=Decimal("0.00"))
     start_date = db.Column(db.Date)
     end_date = db.Column(db.Date)
     usage_limit = db.Column(db.Integer)
     usage_count = db.Column(db.Integer, nullable=False, default=0)
+    is_active = db.Column(db.Boolean, nullable=False, default=True, index=True)
     products = db.relationship("Product", secondary=discount_products, back_populates="discounts")
-    __table_args__ = (CheckConstraint("value >= 0 AND minimum_quantity > 0 AND usage_count >= 0", name="ck_discount_values_nonnegative"),)
+    __table_args__ = (
+        CheckConstraint(
+            "value >= 0 AND minimum_quantity > 0 AND usage_count >= 0 "
+            "AND minimum_purchase_amount >= 0",
+            name="ck_discount_values_nonnegative",
+        ),
+    )
 
 
 class Quotation(db.Model):
