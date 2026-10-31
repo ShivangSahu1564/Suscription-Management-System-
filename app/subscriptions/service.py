@@ -7,7 +7,7 @@ from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 
 from ..extensions import db
-from ..models import Customer, Plan, Product, Quotation, Subscription, SubscriptionItem
+from ..models import Customer, Plan, Product, ProductVariant, Quotation, Subscription, SubscriptionItem, Tax
 
 CENT = Decimal("0.01")
 BILLING_CYCLES = {"daily", "weekly", "monthly", "yearly"}
@@ -30,10 +30,12 @@ def _parse_lines(form):
     product_ids = form.getlist("product_id")
     quantities = form.getlist("quantity")
     tax_rates = form.getlist("tax_rate")
-    if not product_ids or len(product_ids) != len(quantities) or len(product_ids) != len(tax_rates):
+    tax_ids = form.getlist("tax_id")
+    variant_ids = form.getlist("variant_id")
+    if not product_ids or len(product_ids) != len(quantities) or len(product_ids) != len(tax_rates) or (tax_ids and len(product_ids) != len(tax_ids)) or (variant_ids and len(product_ids) != len(variant_ids)):
         raise SubscriptionError("Add at least one complete product line.")
     result = []
-    for raw_id, raw_quantity, raw_tax in zip(product_ids, quantities, tax_rates):
+    for index, (raw_id, raw_quantity, raw_tax) in enumerate(zip(product_ids, quantities, tax_rates)):
         try:
             product = db.session.get(Product, int(raw_id))
             quantity = int(raw_quantity)
@@ -44,12 +46,26 @@ def _parse_lines(form):
             raise SubscriptionError("Tax rate must be a finite number.")
         if product is None:
             raise SubscriptionError("A selected product does not exist.")
+        if not product.is_active:
+            raise SubscriptionError("Inactive products cannot be added to a new subscription.")
+        if variant_ids and variant_ids[index]:
+            variant = db.session.get(ProductVariant, int(variant_ids[index]))
+            if variant is None or variant.product_id != product.id or not variant.is_active:
+                raise SubscriptionError("Select an active variant for the selected product.")
+            product_price = Decimal(product.sales_price) + Decimal(variant.additional_price)
+        else:
+            product_price = product.sales_price
+        if tax_ids and tax_ids[index]:
+            tax = db.session.get(Tax, int(tax_ids[index]))
+            if tax is None or not tax.is_active:
+                raise SubscriptionError("Select an active tax rule.")
+            tax_rate = Decimal(tax.rate)
         if quantity <= 0:
             raise SubscriptionError("Quantities must be greater than zero.")
         if tax_rate < 0 or tax_rate > 100:
             raise SubscriptionError("Tax rate must be between 0 and 100 percent.")
         try:
-            price = money(product.sales_price)
+            price = money(product_price)
         except (InvalidOperation, TypeError, ValueError):
             raise SubscriptionError("The selected product has an invalid price.")
         if not price.is_finite() or price < 0:
@@ -77,11 +93,25 @@ def _validate_plan(plan):
     cycle = (plan.billing_cycle or "").casefold()
     if cycle not in BILLING_CYCLES:
         raise SubscriptionError("The plan billing cycle must be daily, weekly, monthly, or yearly.")
+    today = date.today()
+    if (plan.start_date and today < plan.start_date) or (plan.end_date and today > plan.end_date):
+        raise SubscriptionError("The plan is not currently available.")
     return cycle
 
 
 def _total(lines):
     return money(sum((line["amount"] for line in lines), Decimal("0.00")))
+
+
+def _validate_plan_lines(plan, lines):
+    if sum(line["quantity"] for line in lines) < plan.minimum_quantity:
+        raise SubscriptionError(f"This plan requires a minimum quantity of {plan.minimum_quantity}.")
+    requirements = {link.product_id: link.quantity for link in plan.products}
+    if requirements:
+        selected = {line["product"].id: line["quantity"] for line in lines}
+        for product_id, quantity in requirements.items():
+            if selected.get(product_id, 0) < quantity:
+                raise SubscriptionError("The subscription must include every plan product at its configured quantity.")
 
 
 def create_subscription(form):
@@ -94,6 +124,7 @@ def create_subscription(form):
         raise SubscriptionError("Select a valid customer.")
     _validate_plan(plan)
     lines = _parse_lines(form)
+    _validate_plan_lines(plan, lines)
     start, expiry = _parse_dates(form.get("start_date"), form.get("expiry_date"))
     payment_terms = (form.get("payment_terms") or "").strip()
     if len(payment_terms) > 80:
@@ -129,6 +160,7 @@ def update_subscription(subscription, form):
         raise SubscriptionError("Select a valid customer.")
     _validate_plan(plan)
     lines = _parse_lines(form)
+    _validate_plan_lines(plan, lines)
     start, expiry = _parse_dates(form.get("start_date"), form.get("expiry_date"))
     terms = (form.get("payment_terms") or "").strip()
     if len(terms) > 80:
