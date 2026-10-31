@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # Brightloop Subscription Management System
 
 Shared Flask foundation for a four-member team building a subscription management application.
@@ -19,4 +18,4 @@ Set `SECRET_KEY` to a strong environment secret in deployment. The fallback key 
 `app/models.py` is the single source of shared models. Auth, catalog, subscriptions, and billing each have a separate blueprint.
 =======
 # Suscription-Management-System-
->>>>>>> d1431a88b5c00abceae7bd2786a36d81c11e9a6e
+d1431a88b5c00abceae7bd2786a36d81c11e9a6e
