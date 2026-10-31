@@ -8,7 +8,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 
 from app.extensions import db
 from app.models import User
-from . import bp
+from . import admin_required, bp
 
 
 def _safe_next_url(target):
@@ -85,3 +85,39 @@ def logout():
     logout_user()
     flash("You have been signed out.", "info")
     return redirect(url_for("auth.login"))
+
+
+@bp.route("/admin/staff", methods=["GET", "POST"])
+@admin_required
+def admin_staff():
+    if request.method == "POST":
+        name = request.form.get("name", "").strip()
+        email = request.form.get("email", "").strip().lower()
+        password = request.form.get("password", "")
+        confirm_password = request.form.get("confirm_password", "")
+
+        if not name or not email:
+            flash("Name and email are required.", "danger")
+        elif User.query.filter_by(email=email).first():
+            flash("An account with that email already exists.", "danger")
+        elif not _valid_password(password):
+            flash("Password must be more than 8 characters and include uppercase, lowercase, and a special character.", "danger")
+        elif password != confirm_password:
+            flash("Passwords do not match.", "danger")
+        else:
+            staff_user = User(
+                name=name, email=email,
+                password_hash=generate_password_hash(password), role="staff",
+            )
+            db.session.add(staff_user)
+            try:
+                db.session.commit()
+            except IntegrityError:
+                db.session.rollback()
+                flash("An account with that email already exists.", "danger")
+            else:
+                flash("Staff account created successfully.", "success")
+                return redirect(url_for("auth.admin_staff"))
+
+    staff_users = User.query.filter_by(role="staff").order_by(User.name, User.email).all()
+    return render_template("admin_staff.html", page_title="Staff management", staff_users=staff_users)
