@@ -1,0 +1,8 @@
+{% extends 'base.html' %}
+{% block title %}Subscriptions{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4"><div><div class="eyebrow">CUSTOMER LIFECYCLE</div><h1 class="h2 mb-0">Subscriptions</h1></div>{% if can_manage %}<a class="btn btn-primary" href="{{ url_for('subscriptions.create') }}">New subscription</a>{% endif %}</div>
+<div class="card border-0 shadow-sm"><div class="table-responsive"><table class="table align-middle mb-0"><thead class="table-light"><tr><th>Subscription</th><th>Customer</th><th>Plan / cycle</th><th>Start date</th><th>Expiry date</th><th>Status</th><th class="text-end">Total</th><th></th></tr></thead><tbody>
+{% for s in subscriptions %}<tr><td class="fw-semibold">{{ s.subscription_number }}</td><td>{{ s.customer.company_name }}</td><td>{{ s.plan.name }} <span class="text-secondary">· {{ s.plan.billing_cycle|title }}</span></td><td>{{ s.start_date }}</td><td>{{ s.expiry_date }}</td><td><span class="badge {% if s.status == 'active' %}text-bg-success{% elif s.status == 'closed' %}text-bg-secondary{% elif s.status == 'paused' %}text-bg-warning{% elif s.status == 'draft' %}text-bg-light{% else %}text-bg-primary{% endif %}">{{ s.status|title }}</span></td><td class="text-end">{{ '%.2f'|format(s.total_amount) }}</td><td class="text-end"><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('subscriptions.detail', subscription_id=s.id) }}">View</a></td></tr>{% else %}<tr><td colspan="8" class="text-center text-secondary py-5">No subscriptions yet.</td></tr>{% endfor %}
+</tbody></table></div></div>
+{% endblock %}

@@ -1,0 +1,9 @@
+:root { --brightloop-blue: #4f7cff; }
+body { background: #f5f7fb; color: #182235; min-height: 100vh; }
+.navbar { min-height: 68px; }
+.brand-mark { display: inline-grid; place-items: center; width: 30px; height: 30px; margin-right: .35rem; border-radius: 9px; background: var(--brightloop-blue); color: white; }
+.page-heading { max-width: 900px; }
+.eyebrow { color: #65718a; font-size: .72rem; font-weight: 700; letter-spacing: .12em; margin-bottom: .5rem; }
+.welcome-card { background: white; border: 1px solid #e7eaf1; border-radius: 18px; box-shadow: 0 12px 36px rgba(25, 43, 75, .06); }
+footer { border-top: 1px solid #e7eaf1; }
+@media print { body { background: white; } nav, footer, .no-print, .page-heading { display: none !important; } main { padding: 0 !important; } .quotation-paper { box-shadow: none !important; border: 0 !important; } }
