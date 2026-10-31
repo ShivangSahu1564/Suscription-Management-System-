@@ -1,6 +1,5 @@
 from datetime import date
 from decimal import Decimal, InvalidOperation
-from urllib.parse import urlparse
 
 from flask import Blueprint, abort, flash, jsonify, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
@@ -65,17 +64,6 @@ def parse_products(form, field="product_ids"):
         if product_id not in ids:
             ids.append(product_id)
     return ids
-
-
-def safe_referrer(default_endpoint):
-    referrer = request.referrer
-    if referrer:
-        parsed = urlparse(referrer)
-        if parsed.scheme in {"http", "https"} and parsed.netloc == request.host:
-            return referrer
-        if not parsed.netloc and parsed.path.startswith("/"):
-            return referrer
-    return url_for(default_endpoint)
 
 
 @bp.get("/")
@@ -164,7 +152,7 @@ def toggle_product(product_id):
     product.is_active = not product.is_active
     db.session.commit()
     flash("Product status updated.", "success")
-    return redirect(safe_referrer("catalog.products"))
+    return redirect(url_for("catalog.products"))
 
 
 @bp.route("/products/<int:product_id>/variants", methods=["GET", "POST"])
@@ -433,4 +421,3 @@ def catalog_data():
     taxes = db.session.scalars(select(Tax).where(Tax.is_active.is_(True)).order_by(Tax.name)).all()
     discounts = [d for d in db.session.scalars(select(Discount).order_by(Discount.name)).all() if discount_is_available(d, today)]
     return jsonify(products=[{"id": p.id, "name": p.name, "sales_price": str(p.sales_price), "variants": [{"id": v.id, "name": v.variant_name, "price": str(Decimal(p.sales_price) + Decimal(v.additional_price))} for v in p.variants if v.is_active]} for p in products], plans=[{"id": p.id, "name": p.name, "price": str(p.price), "billing_cycle": p.billing_cycle, "minimum_quantity": p.minimum_quantity, "start_date": p.start_date.isoformat() if p.start_date else None, "end_date": p.end_date.isoformat() if p.end_date else None, "auto_close": p.auto_close, "products": [{"product_id": pp.product_id, "quantity": pp.quantity} for pp in p.products]} for p in plans], taxes=[{"id": t.id, "name": t.name, "rate": str(t.rate)} for t in taxes], discounts=[{"id": d.id, "name": d.name, "type": d.discount_type, "value": str(d.value), "minimum_quantity": d.minimum_quantity, "minimum_purchase_amount": str(d.minimum_purchase_amount), "usage_count": d.usage_count, "usage_limit": d.usage_limit, "product_ids": [x.product_id for x in d.products]} for d in discounts])
-
