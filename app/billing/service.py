@@ -64,6 +64,8 @@ def _eligible_discounts(subscription, invoice_date):
     discounts = db.session.scalars(select(Discount).order_by(Discount.id)).all()
     eligible = []
     for discount in discounts:
+        if not discount.is_active:
+            continue
         if discount.start_date and invoice_date < discount.start_date:
             continue
         if discount.end_date and invoice_date > discount.end_date:
@@ -73,6 +75,11 @@ def _eligible_discounts(subscription, invoice_date):
         allowed_ids = {product.id for product in discount.products}
         lines = [item for item in subscription.items if not allowed_ids or item.product_id in allowed_ids]
         if not lines or sum(item.quantity for item in lines) < discount.minimum_quantity:
+            continue
+        purchase_total = sum(
+            (_money(item.unit_price) * int(item.quantity) for item in subscription.items), ZERO
+        )
+        if purchase_total < _money(discount.minimum_purchase_amount):
             continue
         value = _money(discount.value)
         kind = (discount.discount_type or "").strip().casefold()

@@ -161,6 +161,29 @@ class BillingServiceTests(unittest.TestCase):
         self.assertEqual(invoice.tax_amount, Decimal("20.00"))
         self.assertEqual(invoice.total_amount, Decimal("220.00"))
 
+    def test_discount_requires_active_and_minimum_purchase_eligibility(self):
+        inactive = Discount(
+            name="Inactive", discount_type="fixed", value=Decimal("10.00"),
+            is_active=False, products=[self.product],
+        )
+        above_threshold = Discount(
+            name="High minimum", discount_type="fixed", value=Decimal("10.00"),
+            minimum_purchase_amount=Decimal("250.00"), products=[self.product],
+        )
+        active_eligible = Discount(
+            name="Eligible", discount_type="fixed", value=Decimal("5.00"),
+            minimum_purchase_amount=Decimal("200.00"), products=[self.product],
+        )
+        db.session.add_all([inactive, above_threshold, active_eligible])
+        db.session.commit()
+
+        invoice = generate_invoice(self.subscription.id)
+
+        self.assertEqual(invoice.discount_amount, Decimal("5.00"))
+        self.assertEqual(active_eligible.usage_count, 1)
+        self.assertEqual(inactive.usage_count, 0)
+        self.assertEqual(above_threshold.usage_count, 0)
+
     def test_calculate_invoice_totals_from_invoice_lines(self):
         invoice = generate_invoice(self.subscription.id)
         totals = calculate_invoice_totals(invoice)
