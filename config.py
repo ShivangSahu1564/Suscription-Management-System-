@@ -11,6 +11,12 @@ class Config:
         "DATABASE_URL", f"sqlite:///{(BASE_DIR / 'instance' / 'brightloop.db').as_posix()}"
     )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
+    SMTP_HOST = os.environ.get("SMTP_HOST")
+    SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+    SMTP_USERNAME = os.environ.get("SMTP_USERNAME")
+    SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD")
+    SMTP_USE_TLS = os.environ.get("SMTP_USE_TLS", "true").strip().lower() in {"1", "true", "yes", "on"}
+    MAIL_FROM = os.environ.get("MAIL_FROM")
 
 
 class DevelopmentConfig(Config):
